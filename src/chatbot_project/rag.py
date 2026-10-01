@@ -3,6 +3,8 @@ import os
 from functools import lru_cache
 from pathlib import Path
 from threading import Lock
+import streamlit as st
+
 
 MODEL_NAME = "intfloat/multilingual-e5-base"
 EMBEDDING_VERSION = "v1"
@@ -75,8 +77,8 @@ def get_rag():
         raise ValueError(f"{env_path}에 다음 항목을 설정하세요: {', '.join(missing)}")
     return ManualRAG(
         SentenceTransformer(MODEL_NAME),
-        create_client(config["SUPABASE_URL"], config["SUPABASE_SECRET_KEY"]),
-        OpenAI(api_key=config["OPENAI_API_KEY"], timeout=60.0, max_retries=1),
+        create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_SECRET_KEY"]),
+        OpenAI(api_key=st.secrets["OPENAI_API_KEY"], timeout=60.0, max_retries=1),
         llm_model=config.get("OPENAI_MODEL") or LLM_MODEL,
     )
 
