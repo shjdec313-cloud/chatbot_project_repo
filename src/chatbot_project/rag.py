@@ -1,14 +1,42 @@
-"""노트북의 E5 → Supabase → OpenAI 흐름을 재사용하는 모듈."""
+"""E5 → Supabase → OpenAI 흐름과 모델 사전 다운로드를 제공하는 모듈."""
 import os
 from functools import lru_cache
 from pathlib import Path
 from threading import Lock
+
 import streamlit as st
 
 
 MODEL_NAME = "intfloat/multilingual-e5-base"
 EMBEDDING_VERSION = "v1"
 LLM_MODEL = "gpt-6-luna"
+
+
+def download_model_weights(progress_callback=None):
+    """E5의 가장 큰 가중치 파일을 미리 받으며 실제 전송 진행률을 알립니다.
+
+    SentenceTransformer가 나머지 설정 파일을 준비하고 모델을 로드합니다.
+    """
+    from huggingface_hub import hf_hub_download, try_to_load_from_cache
+    from tqdm.auto import tqdm
+
+    cached = try_to_load_from_cache(MODEL_NAME, "model.safetensors")
+    if isinstance(cached, str):
+        return cached, True
+
+    class ProgressTqdm(tqdm):
+        def update(self, n=1):
+            result = super().update(n)
+            if progress_callback:
+                progress_callback(self.n, self.total)
+            return result
+
+    path = hf_hub_download(
+        repo_id=MODEL_NAME,
+        filename="model.safetensors",
+        tqdm_class=ProgressTqdm,
+    )
+    return path, False
 
 
 class ManualRAG:
@@ -25,7 +53,6 @@ class ManualRAG:
             raise ValueError("질문을 입력해 주세요.")
         if not isinstance(top_k, int) or not 1 <= top_k <= 20:
             raise ValueError("top_k는 1~20 사이의 정수여야 합니다.")
-        # Streamlit 세션들이 공유하는 모델과 DB 클라이언트를 보호합니다.
         with self._search_lock:
             vector = self.model.encode(f"query: {question}", normalize_embeddings=True)
             response = self.supabase.rpc("match_manual_chunks", {
@@ -63,7 +90,7 @@ class ManualRAG:
 
 @lru_cache(maxsize=1)
 def get_rag():
-    """첫 호출에만 모델을 로딩합니다. 모듈 import는 API를 호출하지 않습니다."""
+    """첫 호출에만 모델을 로딩합니다. 앱에서는 질문 전에 호출합니다."""
     from dotenv import dotenv_values
     from openai import OpenAI
     from sentence_transformers import SentenceTransformer
