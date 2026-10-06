@@ -203,6 +203,31 @@ def render_result():
         with answer_tab:
             st.markdown(result["answer"])
             st.caption("답변의 [번호]를 검색 근거의 같은 번호와 비교하세요.")
+            if result.get('image_notice'):
+                st.info(result['image_notice'])
+            gallery = {}
+            for source in result['sources']:
+                for image in source.get('images', []):
+                    entry = gallery.setdefault(image['image_id'], {'image': image, 'citations': []})
+                    if source['citation_id'] not in entry['citations']:
+                        entry['citations'].append(source['citation_id'])
+            if gallery:
+                st.subheader('함께 확인할 매뉴얼 그림')
+                st.caption('검색된 본문에 연결된 그림입니다. 질문과의 관련성을 본문과 함께 확인하세요. 그림 설명은 자동 생성 자료입니다.')
+                entries = list(gallery.values())
+                for offset in range(0, len(entries), 2):
+                    columns = st.columns(2)
+                    for column, entry in zip(columns, entries[offset:offset + 2]):
+                        image = entry['image']
+                        with column:
+                            with st.container(border=True):
+                                refs = ' · '.join(f'[{n}]' for n in entry['citations'])
+                                st.caption(f"검색 근거 {refs} · PDF {image['pdf_page']}쪽")
+                                st.image(image['url'], use_container_width=True)
+                                st.write(image.get('caption') or '매뉴얼 그림')
+                                st.link_button('원본 그림 크게 보기', image['url'])
+            else:
+                st.caption('이번 검색 근거에는 표시할 연결 이미지가 없습니다.')
         with sources_tab:
             if not result["sources"]:
                 st.info("표시할 검색 근거가 없습니다.")
@@ -214,6 +239,9 @@ def render_result():
                         f" · 유사도 {source['similarity']:.4f}"
                     )
                     st.text(source["chunk_text"])
+                    for image in source.get('images', []):
+                        st.caption(f"연결 그림 · PDF {image['pdf_page']}쪽")
+                        st.image(image['url'], caption=image.get('caption') or '', use_container_width=True)
             st.caption("검색 유사도는 정답 확률이 아닙니다.")
 
 
