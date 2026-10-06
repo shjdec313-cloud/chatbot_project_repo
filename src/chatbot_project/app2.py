@@ -203,6 +203,8 @@ def render_result():
         with answer_tab:
             st.markdown(result["answer"])
             st.caption("답변의 [번호]를 검색 근거의 같은 번호와 비교하세요.")
+            if result.get('image_input_count', 0):
+                st.caption(f"실제 매뉴얼 그림 {result['image_input_count']}개를 본문과 함께 답변 모델에 전달했습니다.")
             if result.get('image_notice'):
                 st.info(result['image_notice'])
             gallery = {}
@@ -223,6 +225,10 @@ def render_result():
                             with st.container(border=True):
                                 refs = ' · '.join(f'[{n}]' for n in entry['citations'])
                                 st.caption(f"검색 근거 {refs} · PDF {image['pdf_page']}쪽")
+                                if image.get('used_in_answer'):
+                                    st.caption(f"{image['answer_image_label']} · 실제 그림을 답변 모델에 전달")
+                                else:
+                                    st.caption('참고 그림 · 답변에는 본문과 그림 설명을 활용')
                                 st.image(image['url'], use_container_width=True)
                                 st.write(image.get('caption') or '매뉴얼 그림')
                                 st.link_button('원본 그림 크게 보기', image['url'])
