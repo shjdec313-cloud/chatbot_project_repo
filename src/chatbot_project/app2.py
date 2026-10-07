@@ -253,26 +253,33 @@ def render_result():
 
 def main():
     apply_theme()
+    initialize_state()
 
-    #pages = [page for page in PAGES if page != "매뉴얼 질문하기"]
-    pages = [page for page in PAGES if page != "기"]
-
-    # 이전에 선택한 질문 페이지가 세션에 남아 있으면 초기화
-    if st.session_state.get("project_page") not in pages:
-        st.session_state["project_page"] = pages[0]
+    question_page = "매뉴얼 질문하기"
+    pages = [question_page] + [page for page in PAGES if page != question_page]
+    navigation_key = "project_page_with_questions"
+    if st.session_state.get(navigation_key) not in pages:
+        st.session_state[navigation_key] = question_page
 
     with st.sidebar:
         st.header("CASPER")
-        st.caption("매뉴얼 데이터부터 검색 품질 평가까지, 만든 과정을 살펴보세요.")
+        st.caption("매뉴얼에 질문하거나 프로젝트 산출물을 살펴보세요.")
         page = st.radio(
             "화면 선택",
             pages,
-            key="project_page",
+            key=navigation_key,
             label_visibility="collapsed",
         )
         st.divider()
 
-    render_project_page(page)
+    if page == question_page:
+        render_sidebar()
+        render_header()
+        ensure_rag_ready()
+        render_question_form()
+        render_result()
+    else:
+        render_project_page(page)
     footer()
 
 
