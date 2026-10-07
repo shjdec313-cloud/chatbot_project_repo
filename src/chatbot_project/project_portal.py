@@ -71,7 +71,13 @@ def render_overview():
     with right, st.container(border=True):
         st.markdown("### 자료를 읽는 방법")
         st.write("화면에는 핵심 결과를 먼저 보여줍니다. 세부 기준과 기록은 펼쳐 보고, 전체 제출 자료는 각 단계에서 내려받으세요.")
-    note("이 프로젝트는 매뉴얼 텍스트를 검색합니다. 개별 차량의 실시간 진단이나 주변 충전소의 현재 빈자리를 확인하는 서비스는 아닙니다.")
+    note("매뉴얼 본문 검색에 이미지 연결과 제목·키워드 검색을 순서대로 추가했습니다. 개별 차량의 실시간 진단이나 충전소의 현재 빈자리를 확인하는 서비스는 아닙니다.")
+    with st.container(border=True):
+        st.subheader("검색과 답변을 어떻게 개선했나요?")
+        steps([("초기 · 텍스트 벡터 검색", "30개를 평가해 기준선으로 남겼습니다. 통과 24개, 부분 통과 5개, 실패 1개입니다."),
+               ("1차 · 매뉴얼 이미지 연결", "이미지 표시 버전의 30개 결과를 비교했습니다. 통과는 25개지만 검색 순위는 같았습니다."),
+               ("2차 · 제목·키워드 검색 추가", "30개를 재평가했습니다. 답변 충족 25개, 근거 확보 22/23개이며 일부 질문은 회귀했습니다.")])
+        st.caption("3단계에서 수정 내용을, 4단계에서 비교 근거와 확인 범위를 읽어보세요.")
 
 
 def render_stage1():
@@ -98,7 +104,7 @@ def render_stage1():
         st.caption("분석 CSV는 14컬럼입니다. DB 본문 테이블은 검색 입력용 3컬럼을 제외한 11컬럼입니다.")
     with st.expander("청킹에서 알아둘 점"):
         st.write("상위 목차와 하위 목차의 원문 범위가 겹칠 수 있습니다. 일부 같은 본문이 다른 제목·출처 정보를 가진 청크로 만들어졌습니다.")
-        st.write("450토큰은 목표값입니다. 실제 저장값은 최대 452토큰이며, 450을 넘는 행이 36개 있습니다. 이미지 추출·이미지 검색은 포함하지 않았습니다.")
+        st.write("450토큰은 목표값입니다. 실제 저장값은 최대 452토큰이며, 450을 넘는 행이 36개 있습니다. 이 단계는 초기 텍스트 전처리 기록입니다. 이후 이미지 연결과 검색 방식 변경은 3·4단계의 개선 기록에서 설명합니다.")
     st.subheader("전체 자료")
     download("downloads/stage1_data_preprocessing.zip", "데이터셋·데이터 명세·전처리 설명 내려받기")
 
@@ -149,11 +155,11 @@ def render_stage2():
 
 def render_stage3():
     audit = data("logs/dump_audit.json")
-    hero("03 / RETRIEVAL & ANSWERING", "질문에 가까운 글을 찾아, 근거로 답합니다", "검색은 필요한 글을 고르는 일이고, 답변 생성은 그 글을 읽고 설명하는 일입니다. 두 역할을 연결한 것이 이 앱의 RAG 파이프라인입니다.")
+    hero("03 / RETRIEVAL & ANSWERING", "의미와 단어를 함께 찾아, 근거로 답합니다", "초기 벡터 검색에서 시작해 이미지 연결, 제목·키워드 검색을 추가했습니다. 기존 저장 데이터와 개선한 검색 경로를 구분해 설명합니다.")
     metrics([("저장된 본문", f"{audit['chunk_rows']:,}개", "제공된 덤프 파일을 확인한 값입니다."),
              ("저장된 임베딩", f"{audit['embedding_rows']:,}개", "본문과 같은 ID로 연결되는 숫자 벡터입니다."),
              ("벡터 길이", "768개 숫자", "문서와 질문을 같은 모델로 바꿔 의미를 비교합니다.")])
-    store, ask = st.tabs(["먼저 데이터를 저장합니다", "사용자가 질문하면"])
+    store, ask = st.tabs(["기존 데이터 저장 과정", "초기 벡터 검색 과정"])
     with store:
         steps([("청크에 검색용 목차 정보를 더합니다", "제목과 본문을 묶어 passage:로 시작하는 입력을 만듭니다."),
                ("E5 모델로 숫자 벡터를 만듭니다", "문서의 의미를 비교할 수 있도록 768개의 숫자로 바꿉니다."),
@@ -173,20 +179,141 @@ def render_stage3():
                       {"확인 항목": "연결되지 않은 행", "결과": "0"},
                       {"확인 항목": "개인·팀 데이터 내용 일치", "결과": "일치"}], hide_index=True, width="stretch")
     with st.expander("검색 함수와 코드가 궁금해요"):
-        st.write("코사인 거리로 가까운 순서대로 청크를 찾습니다. 현재 흐름은 검색 한 번과 답변 생성 한 번이며, ReAct나 질문 분해를 적용한 구조는 아닙니다.")
+        st.write("아래는 초기 벡터 검색 함수입니다. 새 함수는 제목·본문의 단어 검색을 함께 수행하며 아래 개선 기록에서 볼 수 있습니다. ReAct나 질문 분해는 추가하지 않았습니다.")
         sql_path = ASSETS / "code/match_manual_chunks.sql"
         st.code(sql_path.read_text(encoding="utf-8"), language="sql")
+    render_search_changes()
     st.subheader("전체 자료")
-    download("downloads/stage3_code_logs.zip", "인덱싱·RAG 코드·SQL·적재 기록 내려받기")
+    download("downloads/stage3_code_logs.zip", "초기 인덱싱·RAG 코드·SQL·적재 기록 내려받기")
+    download("downloads/search_improvements.zip", "개선 기록·수정 검색 함수·rag.py 내려받기")
+
+
+def render_search_changes():
+    changes = data("search_improvements.json")
+    st.subheader("개선 기록 · 무엇을 바꾸었나요?")
+    first, second = st.tabs(["1차 · 이미지 연결", "2차 · 제목·키워드 검색"])
+    with first:
+        st.write("텍스트 청크와 관련 그림을 연결해, 검색한 본문의 이미지 설명과 원본 그림을 사용할 수 있게 했습니다.")
+        steps([("이미지를 별도로 저장합니다", "원본 그림 파일은 Supabase Storage에, 페이지·설명·OCR 등은 이미지 테이블에 저장합니다."),
+               ("청크와 그림을 연결합니다", "연결 테이블 casper_manual_chunk_images로 한 청크의 여러 그림과 여러 청크에서 사용하는 그림을 연결합니다."),
+               ("검색한 청크의 관련 그림을 읽습니다", "rag.py가 이미지 설명·OCR을 근거에 더하고, 선택한 실제 그림도 답변 모델에 보낼 수 있도록 수정했습니다.")])
+        note("이미지 자체의 임베딩을 따로 검색하는 구조는 아닙니다. 먼저 텍스트 청크를 찾고 연결된 이미지를 가져옵니다. 관련 청크를 못 찾으면 그림도 빠질 수 있습니다.")
+        st.caption("1차 30개 비교 때 실제 그림 전달은 미검증이었습니다. 2차 평가에서는 29/30개 질문에 실제 그림 전달 메시지를 관찰했습니다. 서버 요청 자체를 독립 확인한 것은 아닙니다.")
+    with second:
+        st.write("‘차량 제원’이나 ‘축거’가 본문에 있어도 벡터 유사도 상위에 들지 못하는 사례가 있었습니다. 의미 검색에 실제 단어 검색을 함께 사용하도록 바꾸었습니다.")
+        steps([("질문의 원문을 임베딩합니다", "E5에 query: 접두사를 붙입니다. 질문을 LLM으로 다시 작성하지 않습니다."),
+               ("검색 단어를 추출합니다", "‘크로스의 축거를 알려줘’에서 크로스·축거를 뽑습니다. 일부 조사와 불필요한 표현만 규칙으로 처리합니다."),
+               ("두 경로에서 후보를 모읍니다", "match_manual_chunks_hybrid가 벡터 후보와 제목·본문 단어 후보를 기본 50개씩 찾습니다."),
+               ("두 검색 순위를 합칩니다", "제목 일치와 드문 단어에 가중치를 주고, 두 후보 목록의 순위를 결합해 상위 5개를 선택합니다."),
+               ("본문과 연결 그림으로 답합니다", "검색된 청크의 이미지 조회와 실제 이미지 전달 흐름은 유지했습니다.")])
+        st.dataframe(changes["modifications"], hide_index=True, width="stretch")
+        note("표 전처리·청킹·임베딩을 다시 만든 변경은 아닙니다. 표의 행·열 관계가 잘못 추출된 문제는 별도로 점검해야 합니다.")
+        with st.expander("점수와 검색 근거를 읽는 법"):
+            st.write("similarity는 이전과 같은 코사인 유사도이며 정답 확률이 아닙니다. 최종 순위는 hybrid_score로 결정하므로 유사도가 더 낮은 청크가 먼저 나올 수 있습니다.")
+            st.write("vector_rank·keyword_rank는 각 후보 목록의 순위이고, matched_terms는 발견한 단어입니다. 제목에 같은 단어가 있다고 무조건 정답을 포함하는 것은 아닙니다.")
+            st.caption("초기 가중치는 벡터 1, 키워드 2, 순위 상수 20입니다. 30개 재평가로 최적화한 값은 아닙니다. 문자열 포함 검색이며 완전한 한국어 형태소 분석은 아닙니다.")
+        with st.expander("새 SQL과 개인·팀 DB 적용 상태"):
+            st.write("사용자는 개인 DB의 manual_chunks·manual_embeddings에 함수를 적용하고 rag.py도 적용했다고 확인했습니다. 팀 DB 적용 완료는 이번 기록에서 확인하지 않았습니다.")
+            st.write("vector 확장이 extensions에 있는 DB용 SQL입니다. 다른 DB에서는 테이블명과 확장 스키마를 먼저 확인해야 합니다.")
+            choice = st.radio("SQL 대상", ["개인 DB", "팀 DB"], horizontal=True, key="hybrid_sql_target")
+            filename = "match_manual_chunks_hybrid_personal.sql" if choice == "개인 DB" else "match_manual_chunks_hybrid.sql"
+            st.code((ASSETS / "code" / filename).read_text(encoding="utf-8"), language="sql")
 
 
 def render_stage4():
+    hero("04 / QUALITY REVIEW", "초기 결과와 개선 결과를 나란히 봅니다", "같은 30개 질문의 초기·1차·2차 실제 기록을 비교합니다. 잘된 사례와 회귀, 별도 제원 질문 3개를 구분해 보여줍니다.")
+    initial, image, hybrid = st.tabs(["초기 · 30개 평가", "1차 · 이미지 추가 비교", "2차 · 30개 검색 개선 평가"])
+    with initial:
+        render_baseline_evaluation()
+    with image:
+        render_image_comparison()
+    with hybrid:
+        render_hybrid_comparison()
+
+
+def render_image_comparison():
+    report = data("image_comparison.json")
+    before, after = report["before_summary"], report["after_summary"]
+    st.subheader("같은 30개 질문 · 이미지 표시 버전과 비교")
+    st.dataframe([
+        {"항목": "답변 통과", "초기": "24 / 30", "이미지 표시 버전": "25 / 30"},
+        {"항목": "부분 통과", "초기": "5개", "이미지 표시 버전": "4개"},
+        {"항목": "실패", "초기": "1개", "이미지 표시 버전": "1개"},
+        {"항목": "정답 근거 확보 Hit@5", "초기": "20 / 23", "이미지 표시 버전": "20 / 23"},
+        {"항목": "필수 사실 근거 확보", "초기": "46 / 50", "이미지 표시 버전": "46 / 50"},
+    ], hide_index=True, width="stretch")
+    metrics([("그림이 표시된 질문", f"{after['image_display_case_count']} / 30", "이미지 표시가 있었다는 뜻이며 모두 질문과 직접 관련됐다는 뜻은 아닙니다."),
+             ("검색 순서가 같았던 질문", f"{after['same_retrieved_chunk_order_case_count']} / 30", "초기와 1차의 상위 5개 청크 ID와 순서가 같았습니다.")])
+    st.write("Q003은 부분 통과에서 통과로 바뀌었지만 그 질문에는 이미지가 표시되지 않았습니다. 따라서 이 변화가 이미지 추가 때문에 발생했다고 단정할 수 없습니다.")
+    note("1차 비교는 서로 다른 시점의 배포 앱 관찰입니다. 기능만 켜고 끈 통제 실험이 아니고, 실제 이미지 픽셀의 LLM 전달은 당시 서버 요청을 확인하지 않아 미검증이었습니다.")
+    with st.expander("질문별 변화와 이미지의 관련성"):
+        labels = {"direct": "직접 도움", "context": "주변 맥락", "unrelated": "관련 낮음", "none": "그림 없음"}
+        st.dataframe([{"번호": c["test_id"], "질문": c["question"], "초기": OUTCOMES[c["before"]], "1차": OUTCOMES[c["after"]], "표시 그림": c["displayed_image_count"], "탐색적 관련성": labels[c["image_case_grade"]]} for c in report["cases"]], hide_index=True, width="stretch")
+        st.caption("기존 30개는 텍스트 평가용으로 만들었습니다. 이미지 정답 목록을 미리 고정하지 않아 관련성 평가는 탐색적이며 이미지 검색 재현율은 계산하지 않았습니다.")
+    download("downloads/image_comparison.zip", "1차 비교 상세 페이지·실행 기록 내려받기")
+
+
+def render_hybrid_comparison():
+    comparison = data("hybrid_comparison.json")
+    result = data("hybrid_results.json")
+    versions = comparison["versions"]
+    latest = result["summary"]
+    st.subheader("같은 30개 · 초기·1차·2차 비교")
+    st.write("2차는 벡터 검색에 제목·본문 단어 검색을 더했습니다. 정답 근거를 더 찾았지만, 답변의 누락과 회귀도 남았습니다.")
+    metrics([("2차 답변 충족", f"{latest['overall_counts']['pass']} / 30", "고정 내용·기대 행동을 모두 충족한 질문"),
+             ("정답 근거 하나 이상", f"{latest['retrieval_hit_count']} / 23", "Hit@5. 일부 근거만 있어도 성공이므로 완전성도 함께 봅니다."),
+             ("필수 근거 확보", f"{latest['covered_facts']} / {latest['total_facts']}", "50개 필수 내용 각각의 근거 유무")])
+    values = [{"버전": v["label"], "판정": OUTCOMES[k], "질문 수": v["summary"]["overall_counts"].get(k, 0), "순서": n}
+              for v in versions for n, k in enumerate(OUTCOMES)]
+    spec = base_spec(values)
+    spec["mark"] = {"type": "bar", "height": 38, "cornerRadius": 3}
+    spec["encoding"] = {"y": {"field": "버전", "type": "nominal", "sort": [v["label"] for v in versions], "title": None},
+                        "x": {"field": "질문 수", "type": "quantitative", "stack": "zero", "scale": {"domain": [0, 30]}, "title": "질문 수"},
+                        "color": {"field": "판정", "type": "nominal", "scale": {"domain": list(COLORS), "range": list(COLORS.values())}},
+                        "order": {"field": "순서"}, "tooltip": [{"field": "버전"}, {"field": "판정"}, {"field": "질문 수"}]}
+    chart(spec, "three_version_outcomes")
+    st.dataframe([{"버전": v["label"], "충족": v["summary"]["overall_counts"].get("pass", 0),
+                   "부분": v["summary"]["overall_counts"].get("partial", 0), "미충족": v["summary"]["overall_counts"].get("fail", 0),
+                   "근거 Hit@5": f"{v['summary']['retrieval_hit_count']} / 23", "필수 근거": f"{v['summary']['covered_facts']} / 50",
+                   "평균 앱 처리 시간": f"{v['summary']['mean_app_elapsed_seconds']:.2f}초"} for v in versions], hide_index=True, width="stretch")
+    st.info(comparison["conclusion"])
+    steps([("Q005·Q018 · 필요한 근거를 찾았습니다", "충전 표시 시간과 안전벨트 위치·느슨함을 답했습니다. 제원 질문 3개도 별도로 확인했습니다."),
+           ("Q025·Q027 · 검색 누락이 남았습니다", "LKA에 후보가 편중되어 LFA 답을 놓쳤고, 스마트키 오타 질문은 규격·개수를 모두 놓쳤습니다."),
+           ("Q019·Q028 · 답변 행동도 보완해야 합니다", "진단 안내 또는 상황을 되묻는 행동이 빠졌습니다. 검색 함수만 바꿔 해결되는 문제는 아닙니다.")])
+    with st.expander("30개 질문의 판정 변화"):
+        st.dataframe([{"번호": c["test_id"], "질문": c["question"], "초기": OUTCOMES[c["initial"]], "1차": OUTCOMES[c["phase1"]],
+                       "2차": OUTCOMES[c["phase2"]], "이유": c["notes"]} for c in comparison["cases"]], hide_index=True, width="stretch")
+    ids = [r["test_id"] for r in result["results"]]
+    chosen = st.selectbox("2차 실제 답변 살펴보기", ids, index=ids.index("Q025"), key="hybrid_case_select")
+    r = next(r for r in result["results"] if r["test_id"] == chosen)
+    st.markdown(f"**{r['question']}**")
+    st.markdown(r["answer"])
+    st.caption(r["review"]["notes"])
+    with st.expander("검색된 본문 5개"):
+        for s in r["retrieved_sources"]:
+            st.markdown(f"**[{s['rank']}] {s['source_title']}**")
+            st.caption(f"PDF {s['page_start']}~{s['page_end']}쪽 · 유사도 {s['similarity']:.4f}")
+            st.write(s["chunk_text"])
+    with st.expander("추가 제원 질문 3개 · 30개 점수에서 제외"):
+        for r in result["supplementary_results"]:
+            st.markdown(f"**{r['question']}**")
+            st.markdown(r["answer"])
+        st.caption("동일한 개선 전 실행 기록은 없고, 이전 실패는 사용자 보고입니다. 이번 답변은 PDF 63쪽 표의 크기·선택 사양·축거와 대조했습니다.")
+    with st.expander("평가 방법과 해석 범위"):
+        for text in result["metadata"]["limitations"]:
+            st.write(text)
+    download("downloads/hybrid_comparison.zip", "초기·1차·2차 비교 페이지·전체 실행 기록 내려받기", key="hybrid_comparison_download")
+    download("downloads/casper_eval30_pdfs.zip", "30문항 평가지·초기 채점 기록 PDF 내려받기", key="hybrid_baseline_pdf")
+
+
+def render_baseline_evaluation():
     dataset, results = data("evaluation_dataset.json"), data("evaluation_results.json")
     rows = results["results"]
     counts = Counter(r["review"]["overall_result"] for r in rows)
     scored = [r for r in rows if r["review"]["retrieval_hit_at_5"] is not None]
     hits = sum(r["review"]["retrieval_hit_at_5"] for r in scored)
-    hero("04 / QUALITY REVIEW · 2026.10.02", "잘 답한 질문과, 더 살펴볼 질문", "앱에 30개 질문을 실제로 입력했습니다. 필요한 근거를 찾았는지와, 답변이 기준을 충족했는지를 나누어 확인했습니다.")
+    st.subheader("초기 평가 · 2026년 10월 2일")
+    st.caption("이미지 추가와 하이브리드 검색 개선 전의 고정 기록입니다. 기존 30개 질문·정답 기준·판정을 유지했습니다.")
     metrics([("실제 실행", f"{len(rows)}개", "각 질문을 한 번씩 실행한 초기 평가입니다."),
              ("답변 기준 충족", f"{counts['pass']} / {len(rows)}", "부분 충족 5개와 미충족 1개는 포함하지 않습니다."),
              ("정답 근거 확보", f"{hits} / {len(scored)}", "답할 수 있는 질문 23개 중, 정답 근거를 하나 이상 찾은 질문입니다.")])
