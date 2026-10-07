@@ -254,7 +254,8 @@ def render_result():
 def main():
     apply_theme()
 
-    pages = [page for page in PAGES if page != "매뉴얼 질문하기"]
+    #pages = [page for page in PAGES if page != "매뉴얼 질문하기"]
+    pages = [page for page in PAGES if page != "기"]
 
     # 이전에 선택한 질문 페이지가 세션에 남아 있으면 초기화
     if st.session_state.get("project_page") not in pages:
