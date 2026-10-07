@@ -10,7 +10,7 @@ from portal_charts import COLORS, OUTCOMES, CATEGORIES, base_spec, category_spec
 from portal_theme import hero, note, steps
 
 ASSETS = Path(__file__).resolve().parent / "project_assets"
-PAGES = ["프로젝트 한눈에", "매뉴얼 질문하기", "01 데이터·전처리", "02 데이터 분석", "03 검색·답변 구조", "04 검색 품질 평가", "05 최종 결과 요약"]
+PAGES = ["프로젝트 한눈에", "매뉴얼 질문하기", "01 데이터·전처리", "02 데이터 분석", "03 검색·답변 구조", "04 검색 품질 평가", "05 최종 결과 요약", "06 DB 검색 함수 이해하기"]
 
 
 @st.cache_data(show_spinner=False)
@@ -452,7 +452,176 @@ def render_final_summary():
             st.write(text)
     download("downloads/hybrid_comparison.zip", "세 버전 비교와 전체 실행 기록 내려받기", key="final_comparison_download")
 
+
+
+def render_interactive_search_lab():
+    candidates = [
+        {"ID": "A", "제목": "뜻이 비슷한 일반 설명", "벡터 순위": 2, "키워드 순위": None},
+        {"ID": "B", "제목": "질문 단어가 포함된 제원 표", "벡터 순위": 10, "키워드 순위": 1},
+        {"ID": "C", "제목": "뜻과 단어가 모두 관련된 설명", "벡터 순위": 1, "키워드 순위": 3},
+    ]
+    with st.container(border=True):
+        st.subheader("체험 1 · 검색 흐름을 단계별로 따라가 보세요")
+        st.write("**사용 방법:** 아래 단계 버튼을 왼쪽부터 눌러보세요. 각 단계의 입력과 출력이 바뀝니다. 같은 질문이 어떻게 검색 근거가 되는지 살펴보면 됩니다.")
+        stages = ["① 질문 준비", "② 두 경로 검색", "③ 후보 결합", "④ 근거 전달"]
+        stage = st.radio("살펴볼 단계", stages, horizontal=True, key="search_lab_stage")
+        st.progress((stages.index(stage) + 1) / len(stages))
+        if stage == stages[0]:
+            st.markdown("**입력 질문: ‘캐스퍼 크로스의 축거를 알려줘’**")
+            left, right = st.columns(2)
+            with left:
+                st.info("의미 검색에 보내는 것: 질문을 변환한 768차원 벡터")
+            with right:
+                st.info("단어 검색에 보내는 것: 질문 원문과 크로스·축거 같은 검색 단어")
+            st.caption("숫자 벡터는 rag.py의 임베딩 모델이 만듭니다. DB 함수가 질문을 임베딩하는 것은 아닙니다.")
+        elif stage == stages[1]:
+            left, right = st.columns(2)
+            with left:
+                st.markdown("**뜻으로 찾은 후보**")
+                st.dataframe([{"순위": r["벡터 순위"], "후보": r["ID"], "설명": r["제목"]}
+                              for r in sorted(candidates, key=lambda r: r["벡터 순위"])],
+                             hide_index=True, width="stretch")
+            with right:
+                st.markdown("**단어로 찾은 후보**")
+                st.dataframe([{"순위": r["키워드 순위"], "후보": r["ID"], "설명": r["제목"]}
+                              for r in sorted((r for r in candidates if r["키워드 순위"]), key=lambda r: r["키워드 순위"])],
+                             hide_index=True, width="stretch")
+            st.write("**살펴볼 점:** A는 의미 후보에만 있고, B·C는 양쪽에 있습니다. 두 검색 경로의 순위는 서로 다릅니다.")
+        elif stage == stages[2]:
+            st.dataframe([{"후보": r["ID"], "벡터 순위": r["벡터 순위"],
+                           "키워드 순위": str(r["키워드 순위"]) if r["키워드 순위"] else "후보 없음",
+                           "결합": "양쪽 목록에서 찾음" if r["키워드 순위"] else "벡터 목록에서만 찾음"}
+                          for r in candidates], hide_index=True, width="stretch")
+            st.write("**살펴볼 점:** 양쪽에 등장한 B·C를 두 번 세지 않고 ID마다 하나로 합칩니다. 그다음 각 목록의 순위로 최종 점수를 계산합니다.")
+        else:
+            rows = sorted(candidates, key=lambda r: 1 / (20 + r["벡터 순위"]) +
+                          (2 / (20 + r["키워드 순위"]) if r["키워드 순위"] else 0), reverse=True)
+            st.dataframe([{"최종 순위": i, "후보": r["ID"], "설명": r["제목"]}
+                          for i, r in enumerate(rows, 1)], hide_index=True, width="stretch")
+            st.write("기본 가중치에서의 후보 순서입니다. 실제 함수는 선택한 청크의 본문·출처·점수를 반환합니다. rag.py는 연결 그림을 별도로 조회해 본문과 함께 답변 모델에 전달합니다.")
+            st.caption("그림은 연결 상태와 선택 한도 등에 따라 포함되며, 모든 청크에 반드시 그림이 붙는 것은 아닙니다.")
+        st.caption("이 체험의 A·B·C와 순위는 설명을 위한 가상 예시입니다. 실제 질문을 DB에 실행하거나 API를 호출하지 않습니다.")
+    with st.container(border=True):
+        st.subheader("체험 2 · 가중치를 바꾸면 어떤 근거가 먼저 나올까요?")
+        st.write("**사용 방법:** 두 슬라이더를 움직여 보세요. ‘가중치’는 각 검색 경로를 얼마나 비중 있게 반영할지 정하는 숫자입니다. 아래 그래프와 최종 순위 표가 바로 바뀝니다.")
+        if st.button("기본값으로 돌아가기 · 벡터 1 / 키워드 2", key="search_lab_reset"):
+            st.session_state["search_lab_vector"] = 1.0
+            st.session_state["search_lab_keyword"] = 2.0
+        left, right = st.columns(2)
+        with left:
+            vw = st.slider("의미 검색 가중치", 0.0, 3.0, 1.0, 0.1, key="search_lab_vector")
+        with right:
+            kw = st.slider("키워드 검색 가중치", 0.0, 3.0, 2.0, 0.1, key="search_lab_keyword")
+        rows = []
+        for r in candidates:
+            vs = vw / (20 + r["벡터 순위"])
+            ks = kw / (20 + r["키워드 순위"]) if r["키워드 순위"] else 0
+            rows.append({**r, "의미 기여": vs, "단어 기여": ks, "점수": vs + ks})
+        rows.sort(key=lambda r: (-r["점수"], r["ID"]))
+        if vw == kw == 0:
+            st.warning("두 가중치가 모두 0이라 모든 점수가 같습니다. 한쪽 가중치를 올려보세요. 이 상태에서는 검색 점수만으로 우선순위를 정할 수 없습니다.")
+        else:
+            tied = [r["ID"] for r in rows if abs(r["점수"] - rows[0]["점수"]) < 1e-12]
+            if len(tied) > 1:
+                st.info("가장 높은 점수가 같은 후보: " + " · ".join(tied))
+            else:
+                st.success(f"현재 먼저 선택되는 후보: {rows[0]['ID']} · {rows[0]['제목']}")
+        plot = []
+        for row in rows:
+            start = 0
+            for path, score in [("의미 검색", row["의미 기여"]), ("키워드 검색", row["단어 기여"])]:
+                plot.append({"후보": row["ID"], "경로": path, "기여 점수": score,
+                             "start": start, "end": start + score, "합계": row["점수"]})
+                start += score
+        spec = base_spec(plot, 230)
+        spec["mark"] = {"type": "bar", "height": 30}
+        spec["encoding"] = {
+            "y": {"field": "후보", "type": "nominal", "sort": [r["ID"] for r in rows], "title": None},
+            "x": {"field": "start", "type": "quantitative", "title": "순위 결합 점수 · 높을수록 먼저 선택",
+                  "scale": {"domain": [0, max(rows[0]["점수"] * 1.15, .01)]}},
+            "x2": {"field": "end"},
+            "color": {"field": "경로", "type": "nominal", "scale": {
+                "domain": ["의미 검색", "키워드 검색"], "range": ["#7b95af", "#138878"]}},
+            "tooltip": [{"field": "후보"}, {"field": "경로"},
+                        {"field": "기여 점수", "type": "quantitative", "format": ".4f"},
+                        {"field": "합계", "type": "quantitative", "format": ".4f"}]}
+        chart(spec, "search_lab_weight_chart")
+        st.dataframe([{"최종 순서": i, "후보": r["ID"], "설명": r["제목"],
+                       "벡터 순위": r["벡터 순위"],
+                       "키워드 순위": str(r["키워드 순위"]) if r["키워드 순위"] else "후보 없음",
+                       "의미 기여": round(r["의미 기여"], 4), "단어 기여": round(r["단어 기여"], 4),
+                       "합산 점수": round(r["점수"], 4)} for i, r in enumerate(rows, 1)],
+                     hide_index=True, width="stretch")
+        st.caption("표의 점수는 소수 넷째 자리로 표시하며, 순서는 반올림 전 점수로 정합니다.")
+        st.markdown("**이 순서로 체험해 보세요**")
+        steps([("① 기본값 1 / 2로 시작", "양쪽 후보에 들어 있는 C가 먼저 나옵니다. 단어 1위인 B도 의미 2위인 A보다 앞섭니다."),
+               ("② 키워드 가중치를 0으로 변경", "의미 순위만 반영해 C → A → B가 됩니다. A와 B의 위치가 달라지는지 보세요."),
+               ("③ 의미 가중치를 0, 키워드를 2로 변경", "단어 순위만 반영해 B → C → A가 됩니다. A는 단어 후보가 없어 0점입니다."),
+               ("④ 기본값으로 복귀하고 막대에 마우스를 올리기", "각 경로가 점수에 얼마나 기여했는지 상세 정보를 확인할 수 있습니다. 모든 슬라이더 위치에서 순위가 바뀌는 것은 아닙니다.")])
+        note("이 슬라이더는 설명용 계산만 바꿉니다. 실제 DB 검색 함수와 앱 검색 설정은 변경하지 않습니다. 특정 설정에서 순위가 바뀐다고 정답 품질이 반드시 좋아지는 것은 아닙니다.")
+        with st.expander("계산 원리와 실제 함수의 설정"):
+            st.code("점수 = 의미 가중치 / (20 + 벡터 순위)\n     + 키워드 가중치 / (20 + 키워드 순위)\n목록에 없는 경로의 기여는 0", language="text")
+            st.write("실제 함수의 초기 설정은 의미 가중치 1, 키워드 가중치 2, 순위 상수 20입니다. 이 체험은 후보 목록과 순위를 고정한 채 가중치만 바꿉니다.")
+            st.write("키워드 후보 순위는 드문 단어에 더 높은 가중치를 주고, 제목·목차 일치는 본문 일치보다 높게 평가해 정합니다. 단어 반복 횟수만으로 점수를 올리지는 않습니다.")
+            st.caption("실제 함수는 동점일 때 키워드 점수, 벡터 거리, 청크 ID를 추가로 비교합니다. 이 체험은 해당 값이 없는 가상 후보이므로 동점을 알리고 ID 순서로 표시합니다.")
+
+def render_search_function_guide():
+    hero("06 / SEARCH FUNCTION", "검색 함수는 답변에 사용할 근거를 고릅니다",
+         "DB 검색 함수를 ‘매뉴얼에서 필요한 글을 찾아주는 담당자’라고 생각해 보세요. 어려운 SQL보다 질문이 답변이 되는 흐름부터 살펴봅니다.")
+    with st.container(border=True):
+        st.subheader("왜 이 프로젝트의 핵심 중 하나인가요?")
+        st.write("LLM은 검색으로 전달받은 매뉴얼 내용을 보고 답합니다. 검색 함수가 필요한 글을 가져오지 못하면, 매뉴얼에 답이 있어도 ‘확인할 수 없습니다’라고 답할 수 있습니다.")
+        note("전처리는 찾을 자료를 준비하고, 검색 함수는 필요한 근거를 고르고, LLM은 선택한 근거를 읽어 설명합니다. 세 역할이 함께 맞아야 좋은 답변이 나옵니다.")
+        steps([("자료 준비 · 전처리와 임베딩", "PDF 본문을 작은 글 조각인 청크로 나누고, 각 글의 의미를 숫자 벡터로 저장합니다."),
+               ("근거 선택 · DB 검색 함수", "사용자 질문에 필요한 청크를 찾아 순서를 정합니다. 이 페이지에서 설명하는 핵심입니다."),
+               ("답변 작성 · 본문과 그림을 읽는 LLM", "rag.py가 검색된 본문과 연결 그림을 준비해 답변 모델에 전달합니다. 이미지 조회와 전달은 이 검색 함수의 바깥에서 이루어집니다.")])
+    with st.container(border=True):
+        st.subheader("‘캐스퍼 크로스의 축거를 알려줘’가 들어오면")
+        steps([("① rag.py가 질문을 준비합니다", "질문을 E5 모델로 숫자 벡터로 바꾸고, 질문 원문과 크로스·축거 같은 검색 단어를 준비합니다. LLM에게 질문을 다시 쓰게 하는 방식은 아닙니다."),
+               ("② DB에서 검색할 자료를 정합니다", "청크와 임베딩을 chunk_id로 연결하고, 지정한 임베딩 모델·버전에 맞는 자료만 선택합니다."),
+               ("③ 의미와 단어로 각각 후보를 찾습니다", "벡터 검색은 뜻이 비슷한 글을, 키워드 검색은 제목·본문에 질문의 단어가 있는 글을 찾습니다. 기본적으로 각 경로에서 최대 50개씩 모읍니다."),
+               ("④ 두 목록의 순위를 합칩니다", "같은 청크는 한 항목으로 합칩니다. 양쪽에서 잘 찾은 글이나 키워드 순위가 높은 글이 최종 순위에서 유리해집니다."),
+               ("⑤ 상위 근거를 반환합니다", "앱에서는 보통 상위 5개 청크의 본문·제목·페이지·점수를 받습니다. 함수가 답변 문장을 작성하는 것은 아닙니다."),
+               ("⑥ LLM이 본문과 연결 그림으로 답합니다", "검색한 본문에 연결된 그림을 별도로 조회해 답변에 활용합니다. 제원 표에서 크로스의 축거를 확인할 수 있도록 관련 근거가 먼저 검색되어야 합니다.")])
+    left, right = st.columns(2)
+    with left:
+        with st.container(border=True):
+            st.subheader("벡터 검색 · 뜻으로 찾기")
+            st.write("‘배터리 충전 시간이 얼마나 걸려?’처럼 원문과 다른 표현도 의미가 가까우면 찾을 수 있습니다.")
+            st.write("하지만 의미가 비슷한 글이 많거나 표의 문맥이 약하면, 정확한 제원 표가 상위에 오르지 못할 수 있습니다.")
+    with right:
+        with st.container(border=True):
+            st.subheader("키워드 검색 · 단어로 찾기")
+            st.write("‘축거’처럼 원문에 적힌 구체적인 단어를 직접 찾습니다. 제목·목차에서의 일치를 본문 일치보다 높게 평가합니다.")
+            st.write("표현이 다르거나 오타가 나면 놓칠 수 있습니다. 현재는 문자열 포함 검색이며 한국어 형태소 분석기는 사용하지 않습니다.")
+    render_interactive_search_lab()
+    with st.container(border=True):
+        st.subheader("함수에 넣는 것과 돌려받는 것")
+        st.dataframe([
+            {"구분": "입력", "내용": "질문 벡터", "쉬운 설명": "질문의 뜻을 숫자로 표현한 값"},
+            {"구분": "입력", "내용": "질문 원문·검색 단어", "쉬운 설명": "제목·본문에서 직접 찾을 표현"},
+            {"구분": "입력", "내용": "모델·버전·결과 수·후보 수", "쉬운 설명": "어떤 자료를 몇 개 찾을지 정하는 설정"},
+            {"구분": "출력", "내용": "청크 ID·본문·제목·페이지", "쉬운 설명": "답변의 근거와 매뉴얼 출처"},
+            {"구분": "출력", "내용": "유사도·합산 점수·순위·일치 단어", "쉬운 설명": "왜 이 글을 선택했는지 점검할 정보"},
+        ], hide_index=True, width="stretch")
+        note("similarity는 의미의 가까움이며 정답 확률이 아닙니다. 최종 순서는 hybrid_score로 결정하므로 유사도가 더 낮은 글이 먼저 나올 수 있습니다.")
+    with st.container(border=True):
+        st.subheader("이번 결과가 보여준 역할과 한계")
+        comparison = data("hybrid_comparison.json")
+        image, latest = [v["summary"] for v in comparison["versions"][1:]]
+        metrics([
+            ("정답 근거 · 1차 → 2차", f"{image['retrieval_hit_count']} → {latest['retrieval_hit_count']}", "23개 질문 기준"),
+            ("필수 내용 근거 · 1차 → 2차", f"{image['covered_facts']} → {latest['covered_facts']}", "50개 필수 내용 기준"),
+            ("답변 충족 · 1차 → 2차", f"{image['overall_counts']['pass']} → {latest['overall_counts']['pass']}", "30개 질문 기준")])
+        st.write("검색 근거 확보는 늘었지만 답변 충족 개수는 같았습니다. 필요한 글을 찾은 뒤에도 LLM이 조건을 빠뜨리거나 사용자 상황을 되묻지 않으면 답변 기준을 충족하지 못할 수 있습니다.")
+        steps([("잘못 준비된 표는 따로 고쳐야 합니다", "표의 행·열 관계가 깨졌거나 본문이 누락됐다면 전처리와 청킹을 점검해야 합니다. 검색 함수가 원문을 복구하는 것은 아닙니다."),
+               ("이미지 설명·연결도 따로 점검합니다", "현재 함수는 청크 본문과 제목 및 텍스트 임베딩을 검색합니다. 이미지 자체를 별도 벡터로 검색하는 함수가 아닙니다."),
+               ("답변 작성도 별도 개선 대상입니다", "근거를 충분히 찾았더라도 답변에 조건을 정확히 반영하는지 확인해야 합니다.")])
+        st.caption("서로 다른 시점의 앱 실행 결과이므로 검색 함수 변경만의 효과를 분리한 통제 실험은 아닙니다. 전체 평가와 해석 범위는 04·05 페이지에서 확인하세요.")
+    st.subheader("한 문장으로 정리하면")
+    note("이 프로젝트는 DB 검색 함수를 중심으로 의미 검색과 단어 검색을 결합하고, 선택한 매뉴얼 본문과 연결 그림을 근거로 답하는 RAG 시스템입니다.")
+
 def render_project_page(page):
     {"프로젝트 한눈에": render_overview, "01 데이터·전처리": render_stage1,
      "02 데이터 분석": render_stage2, "03 검색·답변 구조": render_stage3,
-     "04 검색 품질 평가": render_stage4, "05 최종 결과 요약": render_final_summary}[page]()
+     "04 검색 품질 평가": render_stage4, "05 최종 결과 요약": render_final_summary, "06 DB 검색 함수 이해하기": render_search_function_guide}[page]()
