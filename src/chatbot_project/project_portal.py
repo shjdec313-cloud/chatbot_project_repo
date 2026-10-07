@@ -6,11 +6,11 @@ from pathlib import Path
 
 import streamlit as st
 
-from portal_charts import COLORS, OUTCOMES, CATEGORIES, base_spec, category_spec, evaluation_groups, retrieval_groups, retrieval_spec, chapter_spec, length_spec, version_spec
+from portal_charts import COLORS, OUTCOMES, CATEGORIES, base_spec, category_spec, evaluation_groups, retrieval_groups, retrieval_spec, chapter_spec, length_spec, version_spec, progress_spec, timing_spec
 from portal_theme import hero, note, steps
 
 ASSETS = Path(__file__).resolve().parent / "project_assets"
-PAGES = ["프로젝트 한눈에", "매뉴얼 질문하기", "01 데이터·전처리", "02 데이터 분석", "03 검색·답변 구조", "04 검색 품질 평가"]
+PAGES = ["프로젝트 한눈에", "매뉴얼 질문하기", "01 데이터·전처리", "02 데이터 분석", "03 검색·답변 구조", "04 검색 품질 평가", "05 최종 결과 요약"]
 
 
 @st.cache_data(show_spinner=False)
@@ -392,7 +392,67 @@ def render_baseline_evaluation():
         download("charts/evaluation_charts.html", "그래프 2개를 HTML로 내려받기", "text/html")
 
 
+
+def render_final_summary():
+    comparison = data("hybrid_comparison.json")
+    result = data("hybrid_results.json")
+    versions = comparison["versions"]
+    first, image, latest = [v["summary"] for v in versions]
+    hero("05 / FINAL SUMMARY", "검색은 개선됐고, 답변의 보완은 남았습니다",
+         "고정한 30개 질문으로 초기·1차·2차를 비교한 최종 요약입니다. 검색 근거 확보와 최종 답변 판정을 구분해 읽어주세요.")
+    metrics([
+        ("최종 답변 충족", f"{latest['overall_counts']['pass']} / {latest['executed']}",
+         "정답 내용과 기대 행동을 모두 충족한 질문입니다. 1차와 개수가 같습니다."),
+        ("정답 근거 확보", f"{latest['retrieval_hit_count']} / {latest['retrieval_scored_cases']}",
+         "매뉴얼 근거를 평가하는 질문 중 상위 5개에서 필요한 근거를 하나 이상 찾은 질문입니다."),
+        ("필수 내용 근거 확보", f"{latest['covered_facts']} / {latest['total_facts']}",
+         "질문마다 필요한 내용들을 각각 셉니다. 최종 답변 정답 수가 아닙니다.")])
+    with st.container(border=True):
+        st.subheader("세 버전의 결과를 한눈에 비교합니다")
+        for column, metric, title in zip(st.columns(3), ["answers", "hits", "facts"],
+                                          ["답변 충족 · 질문 기준", "정답 근거 · 질문 기준", "필수 근거 · 내용 기준"]):
+            with column:
+                st.markdown(f"**{title}**")
+                chart(progress_spec(versions, metric), "final_" + metric)
+        st.caption("세 그래프 모두 0~100% 축입니다. 막대 위 숫자의 분모는 각각 30개 질문, 23개 질문, 50개 필수 내용입니다.")
+        st.write(f"**1차 → 2차:** 답변 충족은 {image['overall_counts']['pass']} → {latest['overall_counts']['pass']}개로 같고, "
+                 f"정답 근거 확보는 {image['retrieval_hit_count']} → {latest['retrieval_hit_count']}개, "
+                 f"필수 내용 근거 확보는 {image['covered_facts']} → {latest['covered_facts']}개로 늘었습니다.")
+        note("두 검색 지표는 같은 검색 결과를 다른 단위로 셉니다. 각각 2개 늘었다고 합쳐서 4개 개선으로 계산하지 않습니다.")
+    with st.container(border=True):
+        st.subheader("질문은 30개인데, 왜 필수 내용은 50개인가요?")
+        st.write("한 질문에 확인할 내용이 여러 개일 수 있습니다. 예를 들어 ‘스마트키 배터리의 규격과 개수는?’에는 규격과 개수, 두 가지 근거가 필요합니다.")
+        steps([("30개 · 전체 질문", "정상 질문 18개, 답할 수 없는 질문 6개, 경계 사례 6개입니다."),
+               ("23개 · 검색 근거 평가 대상", "답할 수 없는 질문 6개와 먼저 상황 확인이 필요한 Q028을 제외했습니다."),
+               ("50개 · 필요한 내용의 총합", "23개 질문에서 확인할 필수 내용을 합한 수입니다. 근거가 검색됐는지 하나씩 확인합니다.")])
+    with st.container(border=True):
+        st.subheader("무엇을 바꿨고, 무엇이 달라졌나요?")
+        steps([("초기 · 텍스트 벡터 검색", "매뉴얼 본문을 청크와 임베딩으로 저장하고 의미가 가까운 글을 검색했습니다."),
+               ("1차 · 이미지 연결", "청크에 매뉴얼 그림을 연결했습니다. 30개 질문의 검색 순서는 초기와 같았고, 답변 충족은 24개에서 25개로 바뀌었습니다. 이 변화를 이미지 효과로 단정하지 않습니다."),
+               ("2차 · DB 검색 함수와 rag.py 변경", "벡터 검색에 제목·본문 키워드 검색을 더했습니다. 청크와 임베딩을 재적재한 변경은 아닙니다. 검색 근거 확보는 늘었지만 답변 충족은 25개로 유지됐습니다.")])
+        st.write("**개선 사례:** Q005의 충전 상태 표시 시간, Q018의 안전벨트 관련 근거를 더 찾았습니다.")
+        st.write("**남은 과제:** Q025·Q027의 검색 누락, Q019·Q028의 진단 안내·상황 확인 행동입니다.")
+    with st.container(border=True):
+        st.subheader("검색 개선에는 시간 비용도 있었습니다")
+        chart(timing_spec(versions), "final_timing")
+        st.write(f"1차 평균 {image['mean_app_elapsed_seconds']:.2f}초 → 2차 평균 {latest['mean_app_elapsed_seconds']:.2f}초입니다. "
+                 "근거를 더 찾았지만 앱에서 관찰한 평균 처리 시간은 늘었습니다.")
+        st.caption("서로 다른 시점의 앱 표시 시간입니다. 모델·네트워크·서버 상태를 통제하지 않아 증가 원인을 검색 함수 하나로 단정하지 않습니다.")
+    with st.container(border=True):
+        st.subheader("제원 질문 3개는 별도 개선 사례입니다")
+        st.write("추가 제원 질문에서는 정확한 답변을 확인했습니다. 기존 30개에 포함되지 않으므로 위 점수에 합산하지 않았습니다.")
+        for row in result["supplementary_results"]:
+            with st.expander(row["question"]):
+                st.markdown(row["answer"])
+        st.caption("PDF 63쪽 표와 대조한 추가 확인입니다. 같은 질문의 개선 전 실행 기록은 없어 별도 비교 점수는 계산하지 않았습니다.")
+    st.subheader("최종 판단")
+    note("기존 30개에서 정답 근거 확보는 개선됐습니다. 최종 답변 충족 개수는 1차와 같고 평균 처리 시간은 늘었습니다. 제원 질문의 성공은 별도 개선 사례입니다.")
+    with st.expander("평가 범위와 해석 한계"):
+        for text in result["metadata"]["limitations"]:
+            st.write(text)
+    download("downloads/hybrid_comparison.zip", "세 버전 비교와 전체 실행 기록 내려받기", key="final_comparison_download")
+
 def render_project_page(page):
     {"프로젝트 한눈에": render_overview, "01 데이터·전처리": render_stage1,
      "02 데이터 분석": render_stage2, "03 검색·답변 구조": render_stage3,
-     "04 검색 품질 평가": render_stage4}[page]()
+     "04 검색 품질 평가": render_stage4, "05 최종 결과 요약": render_final_summary}[page]()

@@ -178,3 +178,49 @@ def retrieval_spec(values):
                      {"mark": {"type": "text", "align": "left", "dx": 9, "fontSize": 13, "color": "#24383b"},
                       "encoding": {"text": {"field": "label"}}}]
     return spec
+
+
+def progress_spec(versions, metric):
+    definitions = {
+        "answers": ("답변", "답변 충족", lambda s: s["overall_counts"]["pass"], lambda s: s["executed"]),
+        "hits": ("근거", "정답 근거 확보", lambda s: s["retrieval_hit_count"], lambda s: s["retrieval_scored_cases"]),
+        "facts": ("내용", "필수 내용 근거 확보", lambda s: s["covered_facts"], lambda s: s["total_facts"]),
+    }
+    _, title, numerator, denominator = definitions[metric]
+    rows = []
+    for index, version in enumerate(versions):
+        summary = version["summary"]
+        n, d = numerator(summary), denominator(summary)
+        rows.append({"버전": ["초기", "1차", "2차"][index], "비율": n / d * 100 if d else 0,
+                     "개수": f"{n}/{d}", "상세": version["label"]})
+    spec = base_spec(rows, 240)
+    spec["encoding"] = {
+        "x": {"field": "버전", "type": "ordinal", "sort": [r["버전"] for r in rows], "title": None,
+              "axis": {"labelAngle": 0}},
+        "y": {"field": "비율", "type": "quantitative", "title": "비율 (%)",
+              "scale": {"domain": [0, 100]}, "axis": {"values": [0, 25, 50, 75, 100]}},
+        "tooltip": [{"field": "상세", "title": "버전"}, {"field": "개수", "title": title},
+                    {"field": "비율", "type": "quantitative", "format": ".1f", "title": "비율 (%)"}]}
+    spec["layer"] = [
+        {"mark": {"type": "bar", "size": 36, "cornerRadiusTopLeft": 5, "cornerRadiusTopRight": 5},
+         "encoding": {"color": {"condition": {"test": "datum['버전'] == '2차'", "value": "#138878"},
+                                "value": "#b5cfda"}}},
+        {"mark": {"type": "text", "dy": -12, "color": "#33485c", "fontSize": 13, "fontWeight": "bold"},
+         "encoding": {"text": {"field": "개수"}}}]
+    return spec
+
+
+def timing_spec(versions):
+    rows = [{"버전": v["label"], "초": v["summary"]["mean_app_elapsed_seconds"],
+             "표시": f"{v['summary']['mean_app_elapsed_seconds']:.2f}초"} for v in versions]
+    spec = base_spec(rows, 180)
+    spec["encoding"] = {
+        "y": {"field": "버전", "type": "nominal", "sort": [r["버전"] for r in rows], "title": None},
+        "x": {"field": "초", "type": "quantitative", "title": "평균 앱 처리 시간 (초)",
+              "scale": {"domain": [0, max(r["초"] for r in rows) * 1.25]}},
+        "tooltip": [{"field": "버전"}, {"field": "초", "type": "quantitative", "format": ".2f"}]}
+    spec["layer"] = [
+        {"mark": {"type": "bar", "height": 24, "cornerRadiusEnd": 5, "color": "#7b95af"}},
+        {"mark": {"type": "text", "align": "left", "dx": 8, "color": "#33485c", "fontSize": 12},
+         "encoding": {"text": {"field": "표시"}}}]
+    return spec
