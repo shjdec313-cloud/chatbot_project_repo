@@ -6,7 +6,7 @@ from pathlib import Path
 
 import streamlit as st
 
-from portal_charts import COLORS, OUTCOMES, CATEGORIES, base_spec, category_spec, evaluation_groups, retrieval_groups, retrieval_spec
+from portal_charts import COLORS, OUTCOMES, CATEGORIES, base_spec, category_spec, evaluation_groups, retrieval_groups, retrieval_spec, chapter_spec, length_spec, version_spec
 from portal_theme import hero, note, steps
 
 ASSETS = Path(__file__).resolve().parent / "project_assets"
@@ -118,22 +118,22 @@ def render_stage2():
     with st.container(border=True):
         st.subheader("어느 장에서 청크가 많이 만들어졌나요?")
         values = [{"장": r["chapter"], "청크 수": int(r["chunks"]), "목차 항목": int(r["source_units"])} for r in table("analysis/chapter_statistics.csv")]
-        spec = base_spec(values, 350)
-        spec.update(mark={"type": "bar", "color": "#168269", "cornerRadiusEnd": 3}, encoding={
-            "y": {"field": "장", "type": "nominal", "sort": "-x", "title": None, "axis": {"labelLimit": 180}},
-            "x": {"field": "청크 수", "type": "quantitative", "title": "청크 수 (개)"},
-            "tooltip": [{"field": "장"}, {"field": "청크 수"}, {"field": "목차 항목"}]})
+        spec = chapter_spec(values)
         chart(spec, "chapter_chart")
         st.caption("편의 장치 411개, 운전자 보조 394개가 많습니다. 청크 수가 많다는 것이 사용자 질문이나 중요도가 더 높다는 뜻은 아닙니다.")
     with st.container(border=True):
         st.subheader("청크 길이는 어느 정도인가요?")
-        spec = base_spec(profile["length_histogram"], 200)
-        spec.update(mark={"type": "bar", "color": "#71a99a", "cornerRadiusTopLeft": 2, "cornerRadiusTopRight": 2},
-                    encoding={"x": {"field": "start", "type": "quantitative", "title": "본문 길이 (토큰)", "bin": "binned"},
-                              "x2": {"field": "end"}, "y": {"field": "count", "type": "quantitative", "title": "청크 수 (개)"},
-                              "tooltip": [{"field": "start", "title": "구간 시작"}, {"field": "end", "title": "구간 끝 (미만)"}, {"field": "count", "title": "청크 수"}]})
+        bins = [{"구간": f"{r['start']}~{r['end']} 미만", "청크 수": int(r["count"])}
+                for r in profile["length_histogram"]]
+        spec = length_spec(bins)
         chart(spec, "length_chart")
-        st.caption("많은 청크가 길이 목표에 가깝습니다. 저장된 토큰 수를 사용한 분석이며 모델을 다시 실행한 결과는 아닙니다.")
+        total = sum(r["청크 수"] for r in bins)
+        largest = max(bins, key=lambda r: r["청크 수"])
+        st.write(f"전체 {total:,}개 중 **{largest['구간']} 토큰** 구간이 {largest['청크 수']:,}개로 가장 많습니다. "
+                 "긴 본문을 목표 길이로 나누면서 이 구간에 청크가 모였습니다.")
+        st.caption("저장된 토큰 수를 사용한 초기 데이터 분석입니다. 450~475 구간에는 정확히 450토큰인 청크도 포함됩니다.")
+        with st.expander("길이 구간별 실제 개수"):
+            st.dataframe(bins, hide_index=True, width="stretch")
     with st.container(border=True):
         st.subheader("반복된 글은 바로 삭제하면 될까요?")
         st.write("같은 글에도 목차 정보가 다르게 붙을 수 있습니다. 본문이 같다는 이유만으로 삭제하기 전에, 실제 검색에서 같은 내용이 반복해서 나오는지 확인해야 합니다.")
@@ -263,14 +263,7 @@ def render_hybrid_comparison():
     metrics([("2차 답변 충족", f"{latest['overall_counts']['pass']} / 30", "고정 내용·기대 행동을 모두 충족한 질문"),
              ("정답 근거 하나 이상", f"{latest['retrieval_hit_count']} / 23", "Hit@5. 일부 근거만 있어도 성공이므로 완전성도 함께 봅니다."),
              ("필수 근거 확보", f"{latest['covered_facts']} / {latest['total_facts']}", "50개 필수 내용 각각의 근거 유무")])
-    values = [{"버전": v["label"], "판정": OUTCOMES[k], "질문 수": v["summary"]["overall_counts"].get(k, 0), "순서": n}
-              for v in versions for n, k in enumerate(OUTCOMES)]
-    spec = base_spec(values)
-    spec["mark"] = {"type": "bar", "height": 38, "cornerRadius": 3}
-    spec["encoding"] = {"y": {"field": "버전", "type": "nominal", "sort": [v["label"] for v in versions], "title": None},
-                        "x": {"field": "질문 수", "type": "quantitative", "stack": "zero", "scale": {"domain": [0, 30]}, "title": "질문 수"},
-                        "color": {"field": "판정", "type": "nominal", "scale": {"domain": list(COLORS), "range": list(COLORS.values())}},
-                        "order": {"field": "순서"}, "tooltip": [{"field": "버전"}, {"field": "판정"}, {"field": "질문 수"}]}
+    spec = version_spec(versions)
     chart(spec, "three_version_outcomes")
     st.dataframe([{"버전": v["label"], "충족": v["summary"]["overall_counts"].get("pass", 0),
                    "부분": v["summary"]["overall_counts"].get("partial", 0), "미충족": v["summary"]["overall_counts"].get("fail", 0),
@@ -321,7 +314,18 @@ def render_baseline_evaluation():
         st.subheader("질문 유형에 따라 답변 결과가 달랐나요?")
         st.write("정상 질문은 매뉴얼에 답이 있는 질문, 답할 수 없는 질문은 실시간·개인 정보 등을 요구한 질문입니다. 경계 사례는 오타·모호함·비슷한 기능처럼 헷갈리기 쉬운 질문입니다.")
         mode = st.radio("그래프 표시", ["질문 수", "유형 안의 비율"], horizontal=True, key="evaluation_chart_mode")
-        chart(category_spec(evaluation_groups(dataset, results), mode != "질문 수"), "evaluation_by_category")
+        values = evaluation_groups(dataset, results)
+        chart(category_spec(values, mode != "질문 수"), "evaluation_by_category")
+        summary = []
+        for title in CATEGORIES.values():
+            group = [r for r in values if r["group"] == title]
+            counts_by_outcome = {r["outcome"]: r["count"] for r in group}
+            total = group[0]["total"] if group else 0
+            passed = counts_by_outcome.get("충족", 0)
+            summary.append({"질문 유형": title, "전체": total, **counts_by_outcome,
+                            "충족 비율": f"{passed / total * 100:.1f}%" if total else "평가 없음"})
+        st.dataframe(summary, hide_index=True, width="stretch")
+        st.caption("비율은 각 유형의 전체 질문 수를 기준으로 계산합니다. ‘질문 수’와 ‘비율’은 같은 평가 결과를 다르게 표시합니다.")
         st.caption("정상 질문 18개 · 답할 수 없는 질문 6개 · 경계 사례 6개. 서로 다른 개수의 그룹을 비교할 때는 비율도 함께 보세요.")
         note("답할 수 없는 질문 6개는 모두 정보를 지어내지 않았습니다. 여기서의 ‘충족’은 답변 거절 또는 확인 불가 안내가 적절했다는 뜻입니다.")
     with st.container(border=True):
